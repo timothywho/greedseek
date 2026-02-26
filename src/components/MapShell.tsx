@@ -55,14 +55,13 @@ const MAX_SPARSE_HEX_CELLS = 120000;
 let poisDataCache: any | null = null;
 let poisDataPromise: Promise<any> | null = null;
 
-const MAP_STYLE = "https://tiles.openfreemap.org/styles/liberty";
+const LIBERTY_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty";
 
 // GeoJSONs
 const USA_GEOJSON_URL = "/data/geo/usa.geojson";
 const CAN_GEOJSON_URL = "/data/geo/canada.geojson";
 const MEX_GEOJSON_URL = "/data/geo/mexico.geojson";
 const USA_STATES_GEOJSON_URL = "/data/geo/usa-states.geojson";
-const OMT_VECTOR_SOURCE = { url: "https://tiles.openfreemap.org/planet" };
 
 // Absolute fetch allowlist (edit here when adding approved basemap/tile providers).
 const FETCH_ABSOLUTE_ALLOWLIST = ["https://tiles.openfreemap.org"];
@@ -544,6 +543,12 @@ function isAllowedAbsoluteFetchUrl(url: string) {
     const prefix = allowed.toLowerCase();
     return normalized === prefix || normalized.startsWith(`${prefix}/`);
   });
+}
+
+function resolveStyleAssetUrl(raw: unknown, styleUrl: string) {
+  if (typeof raw !== "string" || raw.length === 0) return undefined;
+  if (/^https?:\/\//i.test(raw)) return raw;
+  return new URL(raw, styleUrl).toString();
 }
 
 
@@ -1049,6 +1054,8 @@ export default function MapShell() {
     properties: Record<string, any>;
   } | null>(null);
   const [mapError, setMapError] = useState<string | null>(null);
+  const [baseStyle, setBaseStyle] = useState<any>(LIBERTY_STYLE_URL);
+  const [hasOmtSource, setHasOmtSource] = useState(false);
   const [selectedHex, setSelectedHex] = useState<{
     longitude: number;
     latitude: number;
@@ -1085,6 +1092,56 @@ export default function MapShell() {
 
     window.fetch = guardedFetch;
     guardedWindow.__greedseekFetchGuardInstalled = true;
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+
+    fetch(LIBERTY_STYLE_URL)
+      .then((r) => {
+        if (!r.ok) throw new Error(`Liberty style HTTP ${r.status}`);
+        return r.json();
+      })
+      .then((style) => {
+        if (!alive) return;
+        const sources = style?.sources ?? {};
+        const vectorSource = Object.values(sources).find(
+          (s: any) => s && s.type === "vector"
+        );
+        if (!vectorSource) {
+          throw new Error("Liberty style has no vector source");
+        }
+
+        const minimal: any = {
+          version: 8,
+          sources: { omt: vectorSource },
+          layers: [
+            {
+              id: "bg",
+              type: "background",
+              paint: { "background-color": "#07090d" },
+            },
+          ],
+        };
+
+        const resolvedGlyphsUrl = resolveStyleAssetUrl(style?.glyphs, LIBERTY_STYLE_URL);
+        const resolvedSpriteUrl = resolveStyleAssetUrl(style?.sprite, LIBERTY_STYLE_URL);
+        if (resolvedGlyphsUrl) minimal.glyphs = resolvedGlyphsUrl;
+        if (resolvedSpriteUrl) minimal.sprite = resolvedSpriteUrl;
+
+        setBaseStyle(minimal);
+        setHasOmtSource(true);
+      })
+      .catch((err) => {
+        if (!alive) return;
+        console.error("[MapShell] Failed to build minimal base style; falling back to Liberty URL", err);
+        setBaseStyle(LIBERTY_STYLE_URL);
+        setHasOmtSource(false);
+      });
+
+    return () => {
+      alive = false;
+    };
   }, []);
 
   /* --- POIs (local dataset) --- */
@@ -2000,7 +2057,7 @@ export default function MapShell() {
       <div className="relative h-full w-full overflow-hidden" style={{ backgroundColor: COLORS.background }}>
         <MapView
         ref={mapRef}
-        mapStyle={MAP_STYLE}
+        mapStyle={baseStyle}
         style={{ width: "100%", height: "100%" }}
         initialViewState={{
           longitude: center[0],
@@ -2052,15 +2109,13 @@ export default function MapShell() {
         </Source>
 
         {/* Rivers + roads */}
-        <Source
-          id="omt"
-          type="vector"
-          url={OMT_VECTOR_SOURCE.url}
-        >
-          <Layer {...riversLayer} />
-          <Layer {...roadsPrimaryAndHighways} />
-          <Layer {...roadsLocal} />
-        </Source>
+        {hasOmtSource && (
+          <>
+            <Layer {...riversLayer} />
+            <Layer {...roadsPrimaryAndHighways} />
+            <Layer {...roadsLocal} />
+          </>
+        )}
 
         {/* State borders */}
         {statesGeoJson && (
