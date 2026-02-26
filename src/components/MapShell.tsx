@@ -2,7 +2,6 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import "maplibre-gl/dist/maplibre-gl.css";
 import { cellToBoundary, gridDisk, latLngToCell } from "h3-js";
 import * as h3 from "h3-js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -56,14 +55,7 @@ const MAX_SPARSE_HEX_CELLS = 120000;
 let poisDataCache: any | null = null;
 let poisDataPromise: Promise<any> | null = null;
 
-const MAP_STYLE: any = {
-  version: 8,
-  glyphs: "https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf",
-  sources: {},
-  layers: [
-    { id: "background", type: "background", paint: { "background-color": COLORS.background } },
-  ],
-};
+const MAP_STYLE = "https://tiles.openfreemap.org/styles/liberty";
 
 // GeoJSONs
 const USA_GEOJSON_URL = "/data/geo/usa.geojson";
@@ -1056,6 +1048,7 @@ export default function MapShell() {
     latitude: number;
     properties: Record<string, any>;
   } | null>(null);
+  const [mapError, setMapError] = useState<string | null>(null);
   const [selectedHex, setSelectedHex] = useState<{
     longitude: number;
     latitude: number;
@@ -2022,6 +2015,7 @@ export default function MapShell() {
         touchPitch={false}
         pitchWithRotate={false}
         onLoad={() => {
+          setMapError(null);
           if (!initialUrlState.hasView) fitToCONUS();
           updateViewport();
           window.setTimeout(updateViewport, 0);
@@ -2029,6 +2023,11 @@ export default function MapShell() {
         onMove={updateHexResolution}
         onMoveEnd={updateViewport}
         onClick={onMapClick}
+        onError={(e: any) => {
+          const message = String(e?.error?.message ?? e?.error ?? e);
+          setMapError(message);
+          console.error("Map error", e);
+        }}
         interactiveLayerIds={interactiveLayerIds}
         attributionControl={false}
       >
@@ -2210,6 +2209,13 @@ export default function MapShell() {
           </Popup>
         )}
       </MapView>
+
+      {mapError && (
+        <div className="pointer-events-none absolute right-3 top-16 z-40 max-w-[340px] rounded-md border border-red-500/40 bg-red-900/80 px-3 py-2 text-xs text-red-100 shadow-lg">
+          <div className="font-semibold">Map failed to load</div>
+          <div className="mt-0.5 break-words">{mapError}</div>
+        </div>
+      )}
 
       {/* Combined Presence + Places Panel */}
       <div className="pointer-events-none absolute left-4 top-4 z-30">

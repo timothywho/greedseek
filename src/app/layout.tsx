@@ -1,3 +1,4 @@
+import "maplibre-gl/dist/maplibre-gl.css";
 import type { Metadata } from "next";
 import Header from "@/components/Header";
 import "./globals.css";
